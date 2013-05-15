@@ -10,49 +10,34 @@
 # edits made 3/19/2013
 # ---------------------------------------------------------------------------
 
-# Import system modules
 import arcpy
-from arcpy import env
 import json
-import sys, string, os, math
+import sys
+import os
 
 
-##set up arguments
-#acquire arguments
-theIF = sys.argv[1]  #the input Feature Class
-theOF = sys.argv[2]  #the output folder (output file will have same prefix
-                     #as the input feature class w/ extension for the 
-                     #output file type
-theOType = sys.argv[3]  #the output file type CSV or JSON or GeoJSON
-theDelim = sys.argv[4] #the delimiter for the csv output selection
+input_fc = sys.argv[1]
+output_folder = sys.argv[2]
+output_filetype = sys.argv[3]
+output_delim = sys.argv[4]
 
-#global variables
+def writeCSV(myOF):
+    """Function wrtiteCSV - for each row, writes out each field w/ a delimiter.
+       Right now does not deal w/ geometry, blob, or rasters.
+       Has one argument; the name of the output file.
 
-##Function wrtiteCSV - for each row, writes out each field w/ a delimiter
-##right now does not deal w/ geometry, blob, or rasters
-##has one argument; the name of the output file
-def wrtiteCSV(myOF):
-    #go open up and read this table
-    myFile = open(myOF, 'a')  #open the output file and append to it
-    for row in arcpy.SearchCursor(theIF):  #use a search cursor for each row
+    """
+    myFile = open(myOF, 'a')
+    for row in arcpy.SearchCursor(input_fc):
         myStr = ""
-        for myF in arcpy.ListFields(theIF):
-             #if it is a string type field, then make sure it is utf-8 and has
-             #no spaces before or after it
+        for myF in arcpy.ListFields(input_fc):
              if myF.type == "String":
-                 myStr = myStr + \
-                       str(row.getValue(myF.name).encode('utf-8')).strip()\
-                          + theDelim
-             #if it is a number type field, no need to quote it; keep it as a number
-             if (myF.type == "Float") or (myF.type == "Double") or \
-                      (myF.type == "Short") or (myF.type == "Integer") or \
-                      (myF.type == "OID"):
-                 myStr = myStr + str(row.getValue(myF.name)) + theDelim 
-             #if it is a date field, make sure there are no spaces before/after
-             #and quote it
+                 myStr = myStr + str(row.getValue(myF.name).encode('utf-8')).strip() + output_delim
+             if myF.typein ["Float", "Double", "Short", "Integer", "OID"]:
+                 myStr = myStr + str(row.getValue(myF.name)) + output_delim 
              if (myF.type == "Date"):
-                 myStr = myStr + str(row.getValue(myF.name)).strip() + theDelim
-             #need to deal , blob, and raster
+                 myStr = myStr + str(row.getValue(myF.name)).strip() + output_delim
+             # TODO: need to deal , blob, and raster
         myLen = len(myStr) - 1
         myStr = myStr[:myLen]
         myFile.write(myStr +  "\n")
@@ -61,62 +46,49 @@ def wrtiteCSV(myOF):
     del row
     return()
 
+def writeJSON(myOF):
+    """Function wrtiteJSON - for each row, writes out a JSON Object.
+       Right now does not deal w/ multi-part points.
+       Has one argument;  the name of the output file.
 
-##Function wrtiteJSON - for each row, writes out a JSON Object
-##right now does not deal w/ multi-part points
-##has one argument;  the name of the output file 
-def wrtiteJSON(myOF):
-    #go open up and read this table
+    """
     myFile = open(myOF, 'a')
-    cnt = 1 #used to determine the end of the rows
-    #for each row in the feature class input
-    for row in arcpy.SearchCursor(theIF):
+    cnt = 1
+    for row in arcpy.SearchCursor(input_fc):
         myFcnt = 1
         #the next line initializes the variable myGeomStr so that it is available
-        #this code sets the geometry object for geoJson at the end of the line 
+        #this code sets the geometry object for geoJson at the end of the line
         #the attributes or properties
         myGeomStr = ""  
         myStr = '{"type": "Feature", "id": ' + str(cnt) + ', "properties": '
-        
-        # for each field in the feature class input
         properties = {}
-        for myF in arcpy.ListFields(theIF):
-            fCnt = int(len(arcpy.ListFields(theIF)))    
+        for myF in arcpy.ListFields(input_fc):
+            fCnt = int(len(arcpy.ListFields(input_fc)))    
             #if you are a shape field, so something special w/ it
             if myF.name == "Shape": 
-                if theOType == "GeoJSON": # avoid globals!
+                if output_filetype == "GeoJSON": # avoid globals!
                     myField = "geometry"
                     myGeomStr = myGeomStr + writeGeom(row.getValue(myF.name)) + "}"
-            
+
             else: #otherwise, just write up the attribues as "properties"
                 key = myF.name.lower()
                 val = row.getValue(myF.name)
                 if val is None:
                     # skip this field
                     continue 
-
                 if myF.type == "String":
                     properties[key] = val.strip()
-                
                 if myF.type in ("Float", "Double", "Short", "Integer", "OID"):
                     properties[key] = val
-                    
-                # TODO: convert these to ISO 8601 datetime strings.
+                # TODO: Convert these to ISO 8601 datetime strings.
                 if (myF.type == "Date"):
                     properties[key] = '"%s"' % val.strip()
-                
-                # The json module handles UTF-8 encoding and everything for
-                # you, and at C speed.
-
-            ##############################################
-            #need to deal , blob, and raster at some point
-            ##############################################
-
+            # TODO: Need to deal , blob, and raster at some point
         myStr += json.dumps(properties)
         #if its not the last row, then add a comma
         if cnt < theCnt :
             #if if the oType is a geoJson file, append the geomStr
-            if theOType == "GeoJSON":  
+            if output_filetype == "GeoJSON":  
                 myFile.write(myStr + ", " + myGeomStr + "," + "\n")
             #if the oType is Json, don't append the geomStr
             else:
@@ -124,7 +96,7 @@ def wrtiteJSON(myOF):
         #if it is the last row then just add the ending brackets
         else:   
             #if if the oType is a geoJson file, append the geomStr
-            if theOType == "GeoJSON":  
+            if output_filetype == "GeoJSON":  
                 myFile.write(myStr + ", " + myGeomStr + " \n")
             #if the oType is Json, don't append the geomStr
             else:
@@ -133,12 +105,12 @@ def wrtiteJSON(myOF):
     myFile.write("]}" + "\n")
     myFile.close()
 
-##Function writeGeom - writes out the geometry object to text
-##has one argument; first is for the geometry object itelself, 
-##myStr gets concatenated and returned
 def writeGeom(myGeom):
-    #initialize the geometry object 
-    myGeomStr = '"geometry": { "type": ' 
+    """Function writeGeom - writes out the geometry object to text.
+       Has one argument; first is for the geometry object itself,
+       myStr gets concatenated and returned.
+    """
+    myGeomStr = '"geometry": { "type": '
     if myGeom.isMultipart == 0:  #then it is simple geometry
         if myGeom.type == "point": #then write out the simple point attributes
             myGeomStr = myGeomStr + '"Point", "coordinates": ['
@@ -241,62 +213,59 @@ def writeGeom(myGeom):
     del myGeom 
     return(myGeomStr)
 
-##Function prepJSonFile preps the file for writing to a JSON file type
-##has one argument, the output file
 def prepJSonFile (myOF):
-    myFile = open(theOF, 'w')    
+    """Function prepJSonFile preps the file for writing to a JSON file type.
+       Has one argument, the output file.
+
+    """
+    myFile = open(output_folder, 'w')
     myFile.write("{" + "\n")
     myStr = '"type": "FeatureCollection",'
     myFile.write(myStr + "\n")
     myStr = '"features": ['
-    myFile.write(myStr + "\n")    
-    myFile.close()            
+    myFile.write(myStr + "\n")
+    myFile.close()
     del myOF, myStr, myFile
     return()
 
-##Function prepCSVFile preps the file for writing to a CSV file type
-##if the field is a geometry, blob, or raster, it does not write them out
 def prepCSVFile (myOF):
+    """Function prepCSVFile preps the file for writing to a CSV file type.
+       If the field is a geometry, blob, or raster, it does not write them out
+
+    """
     myStr = ""
-    for myF in arcpy.ListFields(theIF):  #only create data for field types that make sense
-        if (myF.type == "String") or (myF.type == "Float") or\
-           (myF.type == "Double") or (myF.type == "Short") or\
-           (myF.type == "Integer") or (myF.type == "OID") or\
-           (myF.type == "Date"):
-           myStr = myStr + myF.name + theDelim
+    for myF in arcpy.ListFields(input_fc):  #only create data for field types that make sense
+        if myF.type in ["String", "Float", "Double", "Short", "Integer", "OID", "Date"]:
+           myStr = myStr + myF.name + output_delim
     myLen = len(myStr) - 1
     myStr = myStr[:myLen]
-    myFile = open(myOF, 'w')    
+    myFile = open(myOF, 'w')
     myFile.write(myStr + "\n")
     myFile.close()            
     del myOF, myStr, myLen, myFile 
     return()
 
-#****************************************************************************
-##################Main Code below
-#****************************************************************************
-try: 
-    #make sure variables are set
-    if theDelim == None:
-        theDelim = "|"
-    #get the file prefix by truncating the featureclass
-    theOF = theOF + "/" + str(os.path.splitext(os.path.basename(theIF))[0])\
-          + "." + theOType.lower()
-    arcpy.AddMessage(theOF)
-    #get a count of all rows in the feature class
-    theCnt = int(arcpy.GetCount_management(theIF).getOutput(0))
-    #message to the end user what you are going to do
-    arcpy.AddMessage("Going to write out " + str(theCnt) + " records ")
-    arcpy.AddMessage("     from feature class " + theIF)
-    arcpy.AddMessage("     to the file " + theOF)
-    arcpy.AddMessage("     as a " + theOType + " file")
-    #if the output type is csv, write a csv
-    if theOType == "CSV":
-        prepCSVFile(theOF)
-        wrtiteCSV(theOF)
-    #if the output type is json, or geojson, write a json file
-    if (theOType == "JSON") or (theOType == "GeoJSON"):
-        prepJSonFile(theOF)
-        wrtiteJSON(theOF)
-except:
-    arcpy.AddMessage("Something bad happened")
+if __name__ == "__main__":
+    try:
+        if output_delim == None:
+            output_delim = "|"
+        #get the file prefix by truncating the featureclass
+        output_folder = output_folder + "/" + str(os.path.splitext(os.path.basename(input_fc))[0])\
+              + "." + output_filetype.lower()
+        arcpy.AddMessage(output_folder)
+        theCnt = int(arcpy.GetCount_management(input_fc).getOutput(0))
+
+        arcpy.AddMessage("Writing out " + str(theCnt) + " records ")
+        arcpy.AddMessage("     from feature class " + input_fc)
+        arcpy.AddMessage("     to the file " + output_folder)
+        arcpy.AddMessage("     as a " + output_filetype + " file")
+        #if the output type is csv, write a csv
+        if output_filetype == "CSV":
+            prepCSVFile(output_folder)
+            writeCSV(output_folder)
+        #if the output type is json, or geojson, write a json file
+        if output_filetype in ["JSON", "GeoJSON"]:
+            prepJSonFile(output_folder)
+            writeJSON(output_folder)
+    except:
+        arcpy.AddMessage("Something bad happened")
